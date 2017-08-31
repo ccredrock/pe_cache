@@ -11,13 +11,17 @@
 -export([start/0, start/1,
          read/2, write/3]).
 
+-export([qin/3, qfun/2, qfun/4, lstop/2]).
+
 %%------------------------------------------------------------------------------
 %% @doc process dict
 %%------------------------------------------------------------------------------
--define(GET_TABLE(Table),      get({pe_cache, Table})).
--define(SET_TABLE(Table, Val), put({pe_cache, Table}, Val)).
--define(GET_SIZE(Table),       get({pe_size, Table})).
--define(SET_SIZE(Table, Val),  put({pe_size, Table}, Val)).
+-define(GET_TABLE(T),      get({?MODULE, cache, T})).
+-define(SET_TABLE(T, V),   put({?MODULE, cache, T}, V)).
+-define(GET_SIZE(T),       get({?MODULE, size, T})).
+-define(SET_SIZE(T, V),    put({?MODULE, size, T}, V)).
+-define(GET_QUEUE(Q),      get({?MODULE, queue, Q})).
+-define(SET_QUEUE(Q, V),   put({?MODULE, queue, Q}, V)).
 
 %%------------------------------------------------------------------------------
 start() ->
@@ -75,4 +79,63 @@ get_size(Table) ->
             ?SET_SIZE(Table, Size), Size;
         Size -> Size
     end.
+
+%%------------------------------------------------------------------------------
+qin(QName, 0, _VList) -> ?SET_QUEUE(QName, queue:new());
+qin(_QName, _, []) -> skip;
+qin(QName, Len, VList) ->
+    case ?GET_QUEUE(QName) of
+        undefined ->
+            Queue1 = qtrunc(qappend(VList, queue:new()), Len),
+            ?SET_QUEUE(QName, Queue1), VList;
+        Queue ->
+            Queue1 = qtrunc(qappend(VList, Queue), Len),
+            ?SET_QUEUE(QName, Queue1), VList
+    end.
+
+qappend([V | T], Queue) -> qappend(T, queue:in(V, Queue));
+qappend([], Queue) -> Queue.
+
+qtrunc(Queue, Len) ->
+    case queue:len(Queue) > Len of
+        true -> qtrunc(queue:drop(Queue), Len);
+        false -> Queue
+    end.
+
+qfun(QName, Fun) ->
+    case ?GET_QUEUE(QName) of
+        {[],[]} -> ok;
+        Queue ->
+            List = queue:to_list(Queue),
+            case lstop(Fun, List) of
+                ok ->
+                    ?SET_QUEUE(QName, queue:new()),
+                    ok;
+                {error, Left, Reason} ->
+                    ?SET_QUEUE(QName, queue:from_list(Left)),
+                    {error, Reason}
+            end
+    end.
+
+qfun(QName, Fun, Len, List) ->
+    case qfun(QName, Fun) of
+        ok ->
+            case lstop(Fun, List) of
+                ok ->
+                    ok;
+                {error, Left, Reason} ->
+                    qin(?MODULE, Len, Left),
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            qin(?MODULE, Len, List),
+            {error, Reason}
+    end.
+
+lstop(Fun, [H | T]) ->
+    case catch Fun(H) of
+        {'EIXT', Reason} -> {error, T, Reason};
+        _ -> lstop(Fun, T)
+    end;
+lstop(_Fun, []) -> ok.
 
