@@ -87,10 +87,12 @@ qin(QName, Len, VList) ->
     case ?GET_QUEUE(QName) of
         undefined ->
             Queue1 = qtrunc(qappend(VList, queue:new()), Len),
-            ?SET_QUEUE(QName, Queue1), VList;
+            ?SET_QUEUE(QName, Queue1),
+            VList;
         Queue ->
             Queue1 = qtrunc(qappend(VList, Queue), Len),
-            ?SET_QUEUE(QName, Queue1), VList
+            ?SET_QUEUE(QName, Queue1),
+            VList
     end.
 
 qappend([V | T], Queue) -> qappend(T, queue:in(V, Queue));
@@ -104,6 +106,7 @@ qtrunc(Queue, Len) ->
 
 qfun(QName, Fun) ->
     case ?GET_QUEUE(QName) of
+        undefined -> ok;
         {[],[]} -> ok;
         Queue ->
             List = queue:to_list(Queue),
@@ -124,17 +127,17 @@ qfun(QName, Fun, Len, List) ->
                 ok ->
                     ok;
                 {error, Left, Reason} ->
-                    qin(?MODULE, Len, Left),
+                    qin(QName, Len, Left),
                     {error, Reason}
             end;
         {error, Reason} ->
-            qin(?MODULE, Len, List),
+            qin(QName, Len, List),
             {error, Reason}
     end.
 
-lstop(Fun, [H | T]) ->
+lstop(Fun, [H | T] = List) ->
     case catch Fun(H) of
-        {'EIXT', Reason} -> {error, T, Reason};
+        {'EXIT', Reason} -> {error, List, Reason};
         _ -> lstop(Fun, T)
     end;
 lstop(_Fun, []) -> ok.
